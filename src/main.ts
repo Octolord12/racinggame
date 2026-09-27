@@ -19,6 +19,7 @@ import { resolveCarCollision, resolveWallCollision } from "./race/Collisions";
 import { SkidMarks } from "./effects/SkidMarks";
 import { EngineSound } from "./audio/EngineSound";
 import { BestTimes } from "./storage/BestTimes";
+import { buildSky } from "./utils/sky";
 import { CONFIG } from "./config";
 
 const PLAYER_COLOR = 0xd23c3c;
@@ -35,14 +36,16 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const skyColor = new THREE.Color(0x8fd0ef);
-scene.background = skyColor;
-scene.fog = new THREE.Fog(skyColor.getHex(), 120, 420);
+const HORIZON_COLOR = 0xcdeaf5;
+const ZENITH_COLOR = 0x2f6fa3;
+scene.background = new THREE.Color(HORIZON_COLOR);
+scene.fog = new THREE.Fog(HORIZON_COLOR, 130, 420);
+scene.add(buildSky(ZENITH_COLOR, HORIZON_COLOR));
 
-const ambient = new THREE.HemisphereLight(0xbfe3ff, 0x2f7a3c, 0.7);
+const ambient = new THREE.HemisphereLight(0xdcf0fb, 0x2f7a3c, 0.75);
 scene.add(ambient);
 
-const sun = new THREE.DirectionalLight(0xfff3d6, 1.6);
+const sun = new THREE.DirectionalLight(0xfff3d6, 1.7);
 sun.position.set(90, 140, 60);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -55,6 +58,11 @@ sun.shadow.camera.far = 320;
 sun.shadow.bias = -0.0015;
 scene.add(sun);
 scene.add(sun.target);
+
+// Soft cool fill from the opposite side so shadowed faces aren't pitch black; casts no shadow of its own.
+const fill = new THREE.DirectionalLight(0xaecdf0, 0.35);
+fill.position.set(-70, 60, -90);
+scene.add(fill);
 
 // Both tracks are built once up front and kept alive for the whole session; switching
 // tracks just swaps which one's group is in the scene, so no rebuild/dispose is needed.

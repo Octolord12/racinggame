@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CONFIG } from "../config";
+import { createAsphaltTexture, createGrassTexture } from "../utils/textures";
 
 export interface TrackSample {
   point: THREE.Vector3;
@@ -153,7 +154,7 @@ export class Track {
   private buildGround(): THREE.Mesh {
     const geometry = new THREE.PlaneGeometry(500, 500);
     geometry.rotateX(-Math.PI / 2);
-    const material = new THREE.MeshStandardMaterial({ color: 0x2f7a3c, roughness: 1 });
+    const material = new THREE.MeshStandardMaterial({ map: createGrassTexture(), roughness: 1 });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = true;
     return mesh;
@@ -194,7 +195,12 @@ export class Track {
     geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
     geometry.setIndex(indices);
 
-    const material = new THREE.MeshStandardMaterial({ color: 0x3a3a3f, roughness: 0.9, side: THREE.DoubleSide });
+    const tileSizeMeters = 8;
+    const material = new THREE.MeshStandardMaterial({
+      map: createAsphaltTexture(this.totalLength / tileSizeMeters),
+      roughness: 0.9,
+      side: THREE.DoubleSide,
+    });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.receiveShadow = true;
     return mesh;
@@ -324,6 +330,8 @@ export class Track {
     foliage.castShadow = true;
 
     const dummy = new THREE.Object3D();
+    const trunkColor = new THREE.Color();
+    const foliageColor = new THREE.Color();
     let count = 0;
     let attempts = 0;
     const bound = 130;
@@ -337,19 +345,29 @@ export class Track {
       if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < minSpacing)) continue;
       placed.push({ x, z });
 
-      dummy.position.set(x, 1.1, z);
-      dummy.rotation.y = Math.random() * Math.PI * 2;
+      const scale = 0.75 + Math.random() * 0.55;
+      const rotationY = Math.random() * Math.PI * 2;
+
+      dummy.position.set(x, 1.1 * scale, z);
+      dummy.rotation.y = rotationY;
+      dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       trunks.setMatrixAt(count, dummy.matrix);
+      trunkColor.setHSL(0.08 + Math.random() * 0.03, 0.35, 0.28 + Math.random() * 0.08);
+      trunks.setColorAt(count, trunkColor);
 
-      dummy.position.set(x, 3.4, z);
+      dummy.position.set(x, 3.4 * scale, z);
       dummy.updateMatrix();
       foliage.setMatrixAt(count, dummy.matrix);
+      foliageColor.setHSL(0.32 + Math.random() * 0.07, 0.45 + Math.random() * 0.15, 0.24 + Math.random() * 0.1);
+      foliage.setColorAt(count, foliageColor);
       count++;
     }
 
     trunks.count = count;
     foliage.count = count;
+    if (trunks.instanceColor) trunks.instanceColor.needsUpdate = true;
+    if (foliage.instanceColor) foliage.instanceColor.needsUpdate = true;
     group.add(trunks, foliage);
     return group;
   }
