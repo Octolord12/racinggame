@@ -25,7 +25,21 @@ export interface FinishLine {
   halfWidth: number;
 }
 
+export type PowerupType = "boost" | "shield" | "grip";
+
+export interface PowerupPadDefinition {
+  /** where the pad sits, as a fraction (0..1) of the way around the centerline */
+  fraction: number;
+  type: PowerupType;
+}
+
 const START_OFFSET_BEHIND_LINE = 8;
+
+const POWERUP_PAD_COLORS: Record<PowerupType, { color: number; emissive: number }> = {
+  boost: { color: 0x1fb6c9, emissive: 0x36e0f5 },
+  shield: { color: 0xcfa227, emissive: 0xffd966 },
+  grip: { color: 0x2e8b4f, emissive: 0x4fe08a },
+};
 
 /**
  * Builds a closed race track from a loop of control points: a paved road ribbon,
@@ -38,10 +52,10 @@ export class Track {
   readonly samples: TrackSample[] = [];
   readonly halfWidth = CONFIG.track.width / 2;
   readonly totalLength: number;
-  private readonly boostPadIndices: number[];
-  private readonly boostPadMaterials: THREE.MeshStandardMaterial[] = [];
+  private readonly powerupPads: { index: number; type: PowerupType }[];
+  private readonly powerupPadMaterials: THREE.MeshStandardMaterial[] = [];
 
-  constructor(controlPoints: THREE.Vector3[], boostPadFractions: number[] = []) {
+  constructor(controlPoints: THREE.Vector3[], powerupPadDefinitions: PowerupPadDefinition[] = []) {
     const curve = new THREE.CatmullRomCurve3(controlPoints, true, "catmullrom", 0.5);
     this.totalLength = curve.getLength();
 
@@ -54,7 +68,10 @@ export class Track {
       this.samples.push({ point, tangent, right });
     }
 
-    this.boostPadIndices = boostPadFractions.map((f) => Math.round(((f % 1) + 1) % 1 * n));
+    this.powerupPads = powerupPadDefinitions.map((def) => ({
+      index: Math.round((((def.fraction % 1) + 1) % 1) * n),
+      type: def.type,
+    }));
 
     this.group.add(this.buildGround());
     this.group.add(this.buildRoad());
@@ -62,25 +79,25 @@ export class Track {
     this.group.add(this.buildWall(-1));
     this.group.add(this.buildFinishLine());
     this.group.add(this.buildScenery());
-    for (const index of this.boostPadIndices) this.group.add(this.buildBoostPad(index));
+    for (const pad of this.powerupPads) this.group.add(this.buildPowerupPad(pad.index, pad.type));
   }
 
-  /** Returns the boost pad index hit at this position, or null. Cooldowns are the caller's job. */
-  getBoostPadIndexAt(query: TrackQueryResult): number | null {
+  /** Returns the powerup type at this position, or null. Cooldowns are the caller's job. */
+  getPowerupPadAt(query: TrackQueryResult): PowerupType | null {
     if (!query.onTrack) return null;
     const n = this.samples.length;
-    for (let i = 0; i < this.boostPadIndices.length; i++) {
-      const raw = Math.abs(query.index - this.boostPadIndices[i]);
+    for (const pad of this.powerupPads) {
+      const raw = Math.abs(query.index - pad.index);
       const circularDistance = Math.min(raw, n - raw);
-      if (circularDistance <= CONFIG.boost.padHalfLengthSamples) return i;
+      if (circularDistance <= CONFIG.powerups.padHalfLengthSamples) return pad.type;
     }
     return null;
   }
 
-  /** Call once a frame with elapsed seconds to pulse the boost pad glow. */
-  updateBoostPadGlow(elapsedSeconds: number) {
+  /** Call once a frame with elapsed seconds to pulse the powerup pad glow. */
+  updatePowerupPadGlow(elapsedSeconds: number) {
     const pulse = 0.55 + 0.45 * Math.sin(elapsedSeconds * 5);
-    for (const material of this.boostPadMaterials) material.emissiveIntensity = pulse;
+    for (const material of this.powerupPadMaterials) material.emissiveIntensity = pulse;
   }
 
   /**
@@ -266,21 +283,22 @@ export class Track {
     return mesh;
   }
 
-  private buildBoostPad(sampleIndex: number): THREE.Mesh {
+  private buildPowerupPad(sampleIndex: number, type: PowerupType): THREE.Mesh {
     const s = this.samples[sampleIndex];
     const padWidth = this.halfWidth * 2 * 0.7;
     const padLength = 6;
+    const colors = POWERUP_PAD_COLORS[type];
 
     const geometry = new THREE.PlaneGeometry(padWidth, padLength);
     geometry.rotateX(-Math.PI / 2);
     const material = new THREE.MeshStandardMaterial({
-      color: 0x1fb6c9,
-      emissive: 0x36e0f5,
+      color: colors.color,
+      emissive: colors.emissive,
       emissiveIntensity: 0.7,
       roughness: 0.4,
       side: THREE.DoubleSide,
     });
-    this.boostPadMaterials.push(material);
+    this.powerupPadMaterials.push(material);
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.copy(s.point);

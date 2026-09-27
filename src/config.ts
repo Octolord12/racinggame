@@ -32,6 +32,12 @@ export const CONFIG = {
 
     boostMultiplier: 1.35, // top-speed multiplier while boosted
     boostDuration: 1.2, // seconds a boost pad's effect lasts
+
+    shieldDuration: 4, // seconds a shield pad's collision immunity lasts
+
+    gripBoostDuration: 5, // seconds a grip pad's traction bonus lasts
+    gripBoostDriftFactor: 0.35, // much less slide than normal driftFactor (0.9) while active
+    gripBoostGripRecovery: 12, // much faster recovery than normal gripRecovery (6.0) while active
   },
 
   track: {
@@ -62,7 +68,7 @@ export const CONFIG = {
     aiCount: 3,
   },
 
-  boost: {
+  powerups: {
     padHalfLengthSamples: 4, // how many centerline samples on either side of center count as "on the pad"
     cooldownSeconds: 1.5, // per car, so idling on a pad doesn't re-trigger every frame
   },

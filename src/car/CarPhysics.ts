@@ -30,6 +30,10 @@ export class CarPhysics {
   lateralVelocity = 0;
   /** seconds left of a boost pad's top-speed bonus */
   boostTimeRemaining = 0;
+  /** seconds left of a shield pad's collision immunity */
+  shieldTimeRemaining = 0;
+  /** seconds left of a grip pad's extra traction */
+  gripBoostTimeRemaining = 0;
 
   setTransform(position: THREE.Vector3, heading: number) {
     this.position.copy(position);
@@ -37,6 +41,8 @@ export class CarPhysics {
     this.forwardSpeed = 0;
     this.lateralVelocity = 0;
     this.boostTimeRemaining = 0;
+    this.shieldTimeRemaining = 0;
+    this.gripBoostTimeRemaining = 0;
   }
 
   /** Instant speed kick plus a temporarily raised top speed, from a boost pad. */
@@ -44,6 +50,20 @@ export class CarPhysics {
     const c = CONFIG.car;
     this.boostTimeRemaining = c.boostDuration;
     this.forwardSpeed = Math.max(this.forwardSpeed, c.maxSpeed * c.boostMultiplier * 0.92);
+  }
+
+  /** Collisions stop hurting (see race/Collisions.ts) for a while, from a shield pad. */
+  activateShield() {
+    this.shieldTimeRemaining = CONFIG.car.shieldDuration;
+  }
+
+  /** Much stickier tires for a while, from a grip pad. Doesn't override an active handbrake drift. */
+  activateGripBoost() {
+    this.gripBoostTimeRemaining = CONFIG.car.gripBoostDuration;
+  }
+
+  get isShielded(): boolean {
+    return this.shieldTimeRemaining > 0;
   }
 
   get speed(): number {
@@ -91,6 +111,8 @@ export class CarPhysics {
     }
 
     if (this.boostTimeRemaining > 0) this.boostTimeRemaining = Math.max(0, this.boostTimeRemaining - dt);
+    if (this.shieldTimeRemaining > 0) this.shieldTimeRemaining = Math.max(0, this.shieldTimeRemaining - dt);
+    if (this.gripBoostTimeRemaining > 0) this.gripBoostTimeRemaining = Math.max(0, this.gripBoostTimeRemaining - dt);
     const effectiveMaxSpeed = this.boostTimeRemaining > 0 ? c.maxSpeed * c.boostMultiplier : c.maxSpeed;
     this.forwardSpeed = clamp(this.forwardSpeed, -c.maxReverseSpeed, effectiveMaxSpeed);
 
@@ -106,8 +128,12 @@ export class CarPhysics {
       this.heading += appliedTurn * dt;
     }
 
-    const driftFactor = input.handbrake ? c.handbrakeDriftFactor : c.driftFactor;
-    const gripRecovery = input.handbrake ? c.handbrakeGripRecovery : c.gripRecovery;
+    let driftFactor = input.handbrake ? c.handbrakeDriftFactor : c.driftFactor;
+    let gripRecovery = input.handbrake ? c.handbrakeGripRecovery : c.gripRecovery;
+    if (!input.handbrake && this.gripBoostTimeRemaining > 0) {
+      driftFactor = c.gripBoostDriftFactor;
+      gripRecovery = c.gripBoostGripRecovery;
+    }
     this.lateralVelocity -= appliedTurn * this.forwardSpeed * driftFactor * dt;
     this.lateralVelocity -= this.lateralVelocity * Math.min(1, gripRecovery * dt);
 

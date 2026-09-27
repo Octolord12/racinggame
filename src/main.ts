@@ -59,7 +59,7 @@ scene.add(sun.target);
 // Both tracks are built once up front and kept alive for the whole session; switching
 // tracks just swaps which one's group is in the scene, so no rebuild/dispose is needed.
 const trackInstances = new Map<string, Track>(
-  TRACKS.map((def) => [def.id, new Track(def.controlPoints, def.boostPadFractions)]),
+  TRACKS.map((def) => [def.id, new Track(def.controlPoints, def.powerupPads)]),
 );
 
 let activeTrackId = TRACKS[0].id;
@@ -249,13 +249,15 @@ function fixedStep(dt: number) {
   for (const car of allCars) car.syncMesh();
 
   for (const car of allCars) {
-    car.boostCooldownRemaining = Math.max(0, car.boostCooldownRemaining - dt);
-    if (car.boostCooldownRemaining <= 0) {
+    car.powerupCooldownRemaining = Math.max(0, car.powerupCooldownRemaining - dt);
+    if (car.powerupCooldownRemaining <= 0) {
       const query = activeTrack.sampleAt(car.physics.position);
-      const padIndex = activeTrack.getBoostPadIndexAt(query);
-      if (padIndex !== null) {
-        car.physics.triggerBoost();
-        car.boostCooldownRemaining = CONFIG.boost.cooldownSeconds;
+      const padType = activeTrack.getPowerupPadAt(query);
+      if (padType !== null) {
+        if (padType === "boost") car.physics.triggerBoost();
+        else if (padType === "shield") car.physics.activateShield();
+        else if (padType === "grip") car.physics.activateGripBoost();
+        car.powerupCooldownRemaining = CONFIG.powerups.cooldownSeconds;
       }
     }
   }
@@ -300,7 +302,7 @@ function frame(now: number) {
     accumulator = 0;
   }
 
-  activeTrack.updateBoostPadGlow(raceClock);
+  activeTrack.updatePowerupPadGlow(raceClock);
 
   if (appMode === "race") {
     sun.target.position.copy(player.mesh.position);
@@ -308,6 +310,7 @@ function frame(now: number) {
 
     const playerPosition = raceManager.getPosition("player") ?? 1;
     hud.update(game, player.physics.speed, playerPosition, opponents.length + 1);
+    hud.updatePowerups(player.physics);
     countdownOverlay.update(game);
     finishScreen.update(game);
     minimap.update([

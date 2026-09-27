@@ -16,6 +16,10 @@ const scratchNormal = new THREE.Vector3();
  * turn-speed gate and steer away (a permanent soft-lock). That's now handled by
  * CONFIG.car.minSpeedToTurn being low enough that even the reduced speed left
  * after this drag still clears it, so the stronger, more punishing drag is safe.
+ *
+ * A shielded car (see CarPhysics.isShielded) skips the bounce and drag entirely:
+ * the into-wall component is simply cancelled, so it glides to a stop at the
+ * boundary instead of losing speed.
  */
 export function resolveWallCollision(car: CarPhysics, track: Track, query: TrackQueryResult) {
   const limit = track.halfWidth - CONFIG.car.collisionRadius;
@@ -31,8 +35,12 @@ export function resolveWallCollision(car: CarPhysics, track: Track, query: Track
   scratchVelocity.copy(car.getWorldVelocity());
   const normalSpeed = scratchVelocity.dot(scratchNormal);
   if (normalSpeed > 0) {
-    scratchVelocity.addScaledVector(scratchNormal, -normalSpeed * (1 + CONFIG.collision.wallRestitution));
-    scratchVelocity.multiplyScalar(CONFIG.collision.wallImpactDrag);
+    if (car.isShielded) {
+      scratchVelocity.addScaledVector(scratchNormal, -normalSpeed);
+    } else {
+      scratchVelocity.addScaledVector(scratchNormal, -normalSpeed * (1 + CONFIG.collision.wallRestitution));
+      scratchVelocity.multiplyScalar(CONFIG.collision.wallImpactDrag);
+    }
     car.setWorldVelocity(scratchVelocity);
   }
 }
@@ -46,7 +54,9 @@ const velocityB = new THREE.Vector3();
  * Circle-circle collision between two cars: separates overlap, bounces both
  * along the contact normal, then applies an overall impact drag to each car's
  * full velocity (see resolveWallCollision for why the drag covers the whole
- * vector rather than just the normal impulse).
+ * vector rather than just the normal impulse) — except a shielded car, which
+ * keeps its full speed after the hit even though it still gets redirected by
+ * the impulse (a shield protects your own speed, not the physics of the hit).
  */
 export function resolveCarCollision(a: CarPhysics, b: CarPhysics) {
   const dx = b.position.x - a.position.x;
@@ -71,8 +81,8 @@ export function resolveCarCollision(a: CarPhysics, b: CarPhysics) {
   const impulse = (-(1 + CONFIG.collision.carRestitution) * closingSpeed) / 2;
   velocityA.addScaledVector(collisionNormal, -impulse);
   velocityB.addScaledVector(collisionNormal, impulse);
-  velocityA.multiplyScalar(CONFIG.collision.carImpactDrag);
-  velocityB.multiplyScalar(CONFIG.collision.carImpactDrag);
+  if (!a.isShielded) velocityA.multiplyScalar(CONFIG.collision.carImpactDrag);
+  if (!b.isShielded) velocityB.multiplyScalar(CONFIG.collision.carImpactDrag);
 
   a.setWorldVelocity(velocityA);
   b.setWorldVelocity(velocityB);

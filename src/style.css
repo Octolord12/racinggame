@@ -70,6 +70,16 @@ html, body {
   opacity: 0.9;
 }
 
+.hud-powerups {
+  position: absolute;
+  top: 108px;
+  left: 24px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #ffd966;
+}
+
 .hud-times .best {
   color: #ffd447;
 }
