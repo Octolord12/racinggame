@@ -10,6 +10,17 @@ export interface CarInput {
   handbrake: boolean;
 }
 
+export interface CarUpgrades {
+  /** 0..MAX_UPGRADE_LEVEL; raises acceleration and top speed */
+  engineLevel: number;
+  /** 0..MAX_UPGRADE_LEVEL; less drift, faster grip recovery */
+  gripLevel: number;
+  /** 0..MAX_UPGRADE_LEVEL; stronger braking and handbrake */
+  brakeLevel: number;
+}
+
+const NO_UPGRADES: CarUpgrades = { engineLevel: 0, gripLevel: 0, brakeLevel: 0 };
+
 const FORWARD = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
 
@@ -19,6 +30,11 @@ const RIGHT = new THREE.Vector3();
  * the handbrake) and decays back toward zero (grip). No full rigid-body simulation.
  * Wall/car collisions are resolved externally (see race/Collisions.ts) by reading and
  * writing this state through getWorldVelocity/setWorldVelocity.
+ *
+ * Garage upgrades (see storage/GarageState.ts) are applied per-instance via
+ * setUpgrades — only ever called for the player's car, so AI opponents and remote
+ * multiplayer puppets stay at the stock NO_UPGRADES baseline regardless of what the
+ * player has purchased.
  */
 export class CarPhysics {
   readonly position = new THREE.Vector3();
@@ -35,6 +51,12 @@ export class CarPhysics {
   /** seconds left of a grip pad's extra traction */
   gripBoostTimeRemaining = 0;
 
+  private upgrades: CarUpgrades = NO_UPGRADES;
+
+  setUpgrades(upgrades: CarUpgrades) {
+    this.upgrades = upgrades;
+  }
+
   setTransform(position: THREE.Vector3, heading: number) {
     this.position.copy(position);
     this.heading = heading;
@@ -49,7 +71,8 @@ export class CarPhysics {
   triggerBoost() {
     const c = CONFIG.car;
     this.boostTimeRemaining = c.boostDuration;
-    this.forwardSpeed = Math.max(this.forwardSpeed, c.maxSpeed * c.boostMultiplier * 0.92);
+    const engineSpeedMult = 1 + this.upgrades.engineLevel * 0.05;
+    this.forwardSpeed = Math.max(this.forwardSpeed, c.maxSpeed * engineSpeedMult * c.boostMultiplier * 0.92);
   }
 
   /** Collisions stop hurting (see race/Collisions.ts) for a while, from a shield pad. */
@@ -91,12 +114,17 @@ export class CarPhysics {
 
   update(dt: number, input: CarInput) {
     const c = CONFIG.car;
+    const engineAccelMult = 1 + this.upgrades.engineLevel * 0.07;
+    const engineSpeedMult = 1 + this.upgrades.engineLevel * 0.05;
+    const brakeMult = 1 + this.upgrades.brakeLevel * 0.08;
+    const gripDriftMult = Math.max(0.25, 1 - this.upgrades.gripLevel * 0.13);
+    const gripRecoveryMult = 1 + this.upgrades.gripLevel * 0.22;
 
     if (input.accelerate) {
-      this.forwardSpeed += c.acceleration * dt;
+      this.forwardSpeed += c.acceleration * engineAccelMult * dt;
     } else if (input.brake) {
       if (this.forwardSpeed > 0.05) {
-        this.forwardSpeed = Math.max(0, this.forwardSpeed - c.brakeDeceleration * dt);
+        this.forwardSpeed = Math.max(0, this.forwardSpeed - c.brakeDeceleration * brakeMult * dt);
       } else {
         this.forwardSpeed -= c.reverseAcceleration * dt;
       }
@@ -107,16 +135,17 @@ export class CarPhysics {
     }
 
     if (input.handbrake && this.forwardSpeed > 0) {
-      this.forwardSpeed = Math.max(0, this.forwardSpeed - c.handbrakeDeceleration * dt);
+      this.forwardSpeed = Math.max(0, this.forwardSpeed - c.handbrakeDeceleration * brakeMult * dt);
     }
 
     if (this.boostTimeRemaining > 0) this.boostTimeRemaining = Math.max(0, this.boostTimeRemaining - dt);
     if (this.shieldTimeRemaining > 0) this.shieldTimeRemaining = Math.max(0, this.shieldTimeRemaining - dt);
     if (this.gripBoostTimeRemaining > 0) this.gripBoostTimeRemaining = Math.max(0, this.gripBoostTimeRemaining - dt);
-    const effectiveMaxSpeed = this.boostTimeRemaining > 0 ? c.maxSpeed * c.boostMultiplier : c.maxSpeed;
+    const baseMaxSpeed = c.maxSpeed * engineSpeedMult;
+    const effectiveMaxSpeed = this.boostTimeRemaining > 0 ? baseMaxSpeed * c.boostMultiplier : baseMaxSpeed;
     this.forwardSpeed = clamp(this.forwardSpeed, -c.maxReverseSpeed, effectiveMaxSpeed);
 
-    const speedRatio = clamp(Math.abs(this.forwardSpeed) / c.maxSpeed, 0, 1);
+    const speedRatio = clamp(Math.abs(this.forwardSpeed) / baseMaxSpeed, 0, 1);
     const turnRate = lerp(c.maxTurnRate, c.minTurnRate, speedRatio);
     let appliedTurn = 0;
     if (Math.abs(this.forwardSpeed) > c.minSpeedToTurn) {
@@ -134,6 +163,8 @@ export class CarPhysics {
       driftFactor = c.gripBoostDriftFactor;
       gripRecovery = c.gripBoostGripRecovery;
     }
+    driftFactor *= gripDriftMult;
+    gripRecovery *= gripRecoveryMult;
     this.lateralVelocity -= appliedTurn * this.forwardSpeed * driftFactor * dt;
     this.lateralVelocity -= this.lateralVelocity * Math.min(1, gripRecovery * dt);
 

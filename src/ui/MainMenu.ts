@@ -1,11 +1,13 @@
 import type { TrackDefinition } from "../track/tracks";
 import { BestTimes } from "../storage/BestTimes";
+import { GarageState } from "../storage/GarageState";
 import { formatTime } from "../utils/math";
 
 export class MainMenu {
   private readonly root: HTMLDivElement;
   private readonly trackButtons: Map<string, HTMLButtonElement> = new Map();
   private readonly bestLabel: HTMLDivElement;
+  private readonly coinsLabel: HTMLDivElement;
   private selectedId: string;
 
   constructor(
@@ -13,6 +15,8 @@ export class MainMenu {
     tracks: TrackDefinition[],
     onSelect: (trackId: string) => void,
     onStart: (trackId: string) => void,
+    onOpenGarage: () => void,
+    onOpenMultiplayer: () => void,
   ) {
     this.selectedId = tracks[0].id;
 
@@ -21,9 +25,14 @@ export class MainMenu {
     this.root.innerHTML = `
       <div class="menu-panel">
         <h1>Arcade Racer</h1>
+        <div class="menu-coins"></div>
         <div class="menu-tracks"></div>
         <div class="menu-best"></div>
         <button type="button" class="menu-start">Start Race</button>
+        <div class="menu-secondary-buttons">
+          <button type="button" class="menu-secondary garage-open">Garage</button>
+          <button type="button" class="menu-secondary multiplayer-open">Multiplayer</button>
+        </div>
         <div class="menu-help">
           WASD / Arrows to drive · Space to handbrake · R to reset · Esc to pause
         </div>
@@ -45,7 +54,10 @@ export class MainMenu {
     }
 
     this.bestLabel = this.root.querySelector(".menu-best")!;
+    this.coinsLabel = this.root.querySelector(".menu-coins")!;
     this.root.querySelector(".menu-start")!.addEventListener("click", () => onStart(this.selectedId));
+    this.root.querySelector(".garage-open")!.addEventListener("click", onOpenGarage);
+    this.root.querySelector(".multiplayer-open")!.addEventListener("click", onOpenMultiplayer);
 
     this.select(this.selectedId);
     onSelect(this.selectedId);
@@ -63,7 +75,12 @@ export class MainMenu {
     this.select(this.selectedId);
   }
 
+  refreshCoins() {
+    this.coinsLabel.textContent = `Coins: ${GarageState.get().coins}`;
+  }
+
   show() {
+    this.refreshCoins();
     this.root.classList.remove("hidden");
   }
 

@@ -5,6 +5,7 @@ export class FinishScreen {
   private root: HTMLDivElement;
   private stats: HTMLDivElement;
   private wasFinished = false;
+  private pendingReward = 0;
 
   constructor(container: HTMLElement, onRestart: () => void, onMainMenu: () => void) {
     this.root = document.createElement("div");
@@ -25,13 +26,19 @@ export class FinishScreen {
     this.root.querySelector(".quit")!.addEventListener("click", onMainMenu);
   }
 
+  /** Call once when the race finishes, before the next update(), to show the coin reward earned. */
+  setReward(coins: number) {
+    this.pendingReward = coins;
+  }
+
   update(game: Game) {
     const finished = game.state === "finished";
     this.root.classList.toggle("hidden", !finished);
     if (finished && !this.wasFinished) {
       this.stats.innerHTML = `
         Total time: ${formatTime(game.finalTime ?? 0)}<br />
-        Best lap: ${game.bestLapTime !== null ? formatTime(game.bestLapTime) : "--:--.---"}
+        Best lap: ${game.bestLapTime !== null ? formatTime(game.bestLapTime) : "--:--.---"}<br />
+        Coins earned: +${this.pendingReward}
       `;
     }
     this.wasFinished = finished;
@@ -40,5 +47,6 @@ export class FinishScreen {
   hide() {
     this.root.classList.add("hidden");
     this.wasFinished = false;
+    this.pendingReward = 0;
   }
 }

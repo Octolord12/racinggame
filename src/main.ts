@@ -13,17 +13,26 @@ import { FinishScreen } from "./ui/FinishScreen";
 import { Minimap } from "./ui/Minimap";
 import { MainMenu } from "./ui/MainMenu";
 import { PauseMenu } from "./ui/PauseMenu";
+import { Garage } from "./ui/Garage";
+import { MultiplayerMenu } from "./ui/MultiplayerMenu";
+import { MuteButton } from "./ui/MuteButton";
 import { AIDriver } from "./ai/AIDriver";
 import { RaceManager } from "./race/RaceManager";
 import { resolveCarCollision, resolveWallCollision } from "./race/Collisions";
 import { SkidMarks } from "./effects/SkidMarks";
 import { EngineSound } from "./audio/EngineSound";
 import { BestTimes } from "./storage/BestTimes";
+import { GarageState } from "./storage/GarageState";
+import { AudioSettings } from "./storage/AudioSettings";
+import { NetworkClient } from "./net/NetworkClient";
+import type { PeerInfo } from "./net/NetworkClient";
 import { buildSky } from "./utils/sky";
+import { normalizeAngle, smoothingFactor } from "./utils/math";
 import { CONFIG } from "./config";
 
-const PLAYER_COLOR = 0xd23c3c;
 const NEUTRAL_INPUT: CarInput = { accelerate: false, brake: false, steer: 0, handbrake: false };
+/** coin reward by finishing place (index 0 = 1st) */
+const COIN_REWARDS = [120, 70, 40, 15];
 
 const container = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -75,7 +84,8 @@ let activeTrack = trackInstances.get(activeTrackId)!;
 scene.add(activeTrack.group);
 
 // Cars are likewise built once and just repositioned/hidden between races and tracks.
-const player = new RaceCar(PLAYER_COLOR);
+let currentPlayerColor = GarageState.get().selectedColor;
+const player = new RaceCar(currentPlayerColor);
 player.mesh.visible = false;
 scene.add(player.mesh);
 
@@ -95,6 +105,13 @@ const opponents: Opponent[] = CONFIG.ai.drivers.map((driverConfig, i) => {
 });
 
 const allCars = [player, ...opponents.map((o) => o.car)];
+
+interface RemotePlayer {
+  car: RaceCar;
+  color: number;
+}
+const remotePlayers = new Map<string, RemotePlayer>();
+const remoteTargets = new Map<string, { position: { x: number; z: number }; heading: number; speed: number }>();
 
 const skidMarks = new SkidMarks(scene);
 
@@ -121,6 +138,12 @@ const finishScreen = new FinishScreen(
 hud.hide();
 minimap.hide();
 
+let userMuted = AudioSettings.isMuted();
+new MuteButton(container, userMuted, (muted) => {
+  userMuted = muted;
+  AudioSettings.setMuted(muted);
+});
+
 let engineSound: EngineSound | null = null;
 
 let game: Game;
@@ -128,6 +151,13 @@ let raceManager: RaceManager;
 
 let appMode: "menu" | "race" = "menu";
 let paused = false;
+let onlineMode = false;
+let onlineTrackId: string | null = null;
+let latestRoster: PeerInfo[] = [];
+let hasAwardedCoinsThisRace = false;
+let stateSendAccumulator = 0;
+const STATE_SEND_INTERVAL = 1 / 15;
+
 /** simulation seconds since the current race's grid was set; drives the boost pad pulse, freezes on pause */
 let raceClock = 0;
 
@@ -143,30 +173,131 @@ function activateTrack(trackId: string) {
   chaseCamera.snapTo(preview.position, preview.heading);
 }
 
+function applyGarageStateToPlayer() {
+  const garage = GarageState.get();
+  player.physics.setUpgrades({ engineLevel: garage.engineLevel, gripLevel: garage.gripLevel, brakeLevel: garage.brakeLevel });
+  currentPlayerColor = garage.selectedColor;
+  player.setBodyColor(currentPlayerColor);
+}
+
+function addRemotePlayer(peer: PeerInfo) {
+  if (remotePlayers.has(peer.id)) return;
+  const car = new RaceCar(peer.color);
+  car.mesh.visible = true;
+  scene.add(car.mesh);
+  const grid = activeTrack.getGridTransform(14 + remotePlayers.size * 6, 0);
+  car.setStart(grid.position, grid.heading);
+  remotePlayers.set(peer.id, { car, color: peer.color });
+  raceManager?.register(peer.id, car.physics);
+}
+
+function removeRemotePlayer(id: string) {
+  const entry = remotePlayers.get(id);
+  if (!entry) return;
+  scene.remove(entry.car.mesh);
+  remotePlayers.delete(id);
+  remoteTargets.delete(id);
+}
+
+function syncRemotePlayers(players: PeerInfo[]) {
+  if (!onlineMode) return;
+  const selfId = netClient.selfId;
+  const activeIds = new Set(players.filter((p) => p.id !== selfId).map((p) => p.id));
+  for (const id of [...remotePlayers.keys()]) {
+    if (!activeIds.has(id)) removeRemotePlayer(id);
+  }
+  for (const peer of players) {
+    if (peer.id !== selfId) addRemotePlayer(peer);
+  }
+}
+
+function clearRemotePlayers() {
+  for (const id of [...remotePlayers.keys()]) removeRemotePlayer(id);
+}
+
+const netClient = new NetworkClient();
+netClient.onOpen = () => multiplayerMenu.setStatus("Connected — waiting for the room to agree on a track.");
+netClient.onClose = () => multiplayerMenu.setStatus("Disconnected.");
+netClient.onErrorMsg = (message) => multiplayerMenu.setStatus(message);
+netClient.onRoster = (players) => {
+  latestRoster = players;
+  multiplayerMenu.setRoster(players, netClient.selfId);
+  syncRemotePlayers(players);
+};
+netClient.onTrack = (trackId) => {
+  onlineTrackId = trackId;
+  multiplayerMenu.setTrack(trackId, true);
+};
+netClient.onPeerState = (state) => {
+  remoteTargets.set(state.id, { position: state.position, heading: state.heading, speed: state.speed });
+};
+netClient.onPeerLeft = (id) => removeRemotePlayer(id);
+
 const mainMenu = new MainMenu(
   container,
   TRACKS,
   (trackId) => activateTrack(trackId),
-  (trackId) => startRace(trackId),
+  (trackId) => startRace(trackId, false),
+  () => {
+    mainMenu.hide();
+    garage.show();
+  },
+  () => {
+    mainMenu.hide();
+    multiplayerMenu.reset();
+    multiplayerMenu.show();
+  },
 );
+
+const garage = new Garage(
+  container,
+  () => {
+    garage.hide();
+    mainMenu.show();
+  },
+  () => {},
+);
+
+const multiplayerMenu = new MultiplayerMenu(container, TRACKS, {
+  onConnect: (serverUrl, room, name) => {
+    multiplayerMenu.setStatus("Connecting…");
+    netClient.connect(serverUrl, room, name, GarageState.get().selectedColor);
+  },
+  onSelectTrack: (trackId) => netClient.setTrack(trackId),
+  onStart: () => {
+    if (onlineTrackId) startRace(onlineTrackId, true);
+  },
+  onBack: () => {
+    netClient.disconnect();
+    multiplayerMenu.hide();
+    mainMenu.show();
+  },
+});
+
+mainMenu.show(); // populate coins/best-time on first load, since the panel starts visible without going through show()
 
 function fullReset() {
   const playerStart = activeTrack.getStartTransform();
   player.setStart(playerStart.position, playerStart.heading);
 
-  for (const opponent of opponents) {
-    const start = activeTrack.getGridTransform(opponent.gridDistance, opponent.driver.config.lateralOffset);
-    opponent.car.setStart(start.position, start.heading);
+  if (!onlineMode) {
+    for (const opponent of opponents) {
+      const start = activeTrack.getGridTransform(opponent.gridDistance, opponent.driver.config.lateralOffset);
+      opponent.car.setStart(start.position, start.heading);
+    }
   }
 
   game.reset();
   raceClock = 0;
+  hasAwardedCoinsThisRace = false;
   skidMarks.reset();
   chaseCamera.snapTo(player.physics.position, player.physics.heading);
 }
 
-function startRace(trackId: string) {
+function startRace(trackId: string, online: boolean) {
+  onlineMode = online;
   activateTrack(trackId);
+  applyGarageStateToPlayer();
 
   game = new Game(activeTrack.getFinishLine(), (seconds) => {
     BestTimes.set(activeTrackId, seconds);
@@ -176,16 +307,26 @@ function startRace(trackId: string) {
 
   raceManager = new RaceManager(activeTrack);
   raceManager.register("player", player.physics);
-  for (const opponent of opponents) raceManager.register(opponent.id, opponent.car.physics);
+
+  if (onlineMode) {
+    for (const opponent of opponents) opponent.car.mesh.visible = false;
+    clearRemotePlayers();
+    syncRemotePlayers(latestRoster);
+  } else {
+    for (const opponent of opponents) {
+      opponent.car.mesh.visible = true;
+      raceManager.register(opponent.id, opponent.car.physics);
+    }
+  }
 
   player.mesh.visible = true;
-  for (const opponent of opponents) opponent.car.mesh.visible = true;
 
   fullReset();
 
   appMode = "race";
   paused = false;
   mainMenu.hide();
+  multiplayerMenu.hide();
   pauseMenu.hide();
   hud.show();
   minimap.show();
@@ -199,6 +340,13 @@ function returnToMenu() {
   paused = false;
   player.mesh.visible = false;
   for (const opponent of opponents) opponent.car.mesh.visible = false;
+
+  if (onlineMode) {
+    netClient.disconnect();
+    clearRemotePlayers();
+    onlineMode = false;
+    onlineTrackId = null;
+  }
 
   pauseMenu.hide();
   countdownOverlay.hide();
@@ -237,26 +385,51 @@ function fixedStep(dt: number) {
     : NEUTRAL_INPUT;
   player.physics.update(dt, playerInput);
 
-  for (const opponent of opponents) {
-    const query = activeTrack.sampleAt(opponent.car.physics.position);
-    const aiInput = raceActive ? opponent.driver.computeInput(opponent.car.physics, activeTrack, query) : NEUTRAL_INPUT;
-    opponent.car.physics.update(dt, aiInput);
-  }
-
-  resolveWallCollision(player.physics, activeTrack, activeTrack.sampleAt(player.physics.position));
-  for (const opponent of opponents) {
-    resolveWallCollision(opponent.car.physics, activeTrack, activeTrack.sampleAt(opponent.car.physics.position));
-  }
-
-  for (let i = 0; i < allCars.length; i++) {
-    for (let j = i + 1; j < allCars.length; j++) {
-      resolveCarCollision(allCars[i].physics, allCars[j].physics);
+  if (!onlineMode) {
+    for (const opponent of opponents) {
+      const query = activeTrack.sampleAt(opponent.car.physics.position);
+      const aiInput = raceActive ? opponent.driver.computeInput(opponent.car.physics, activeTrack, query) : NEUTRAL_INPUT;
+      opponent.car.physics.update(dt, aiInput);
     }
   }
 
-  for (const car of allCars) car.syncMesh();
+  resolveWallCollision(player.physics, activeTrack, activeTrack.sampleAt(player.physics.position));
+  if (!onlineMode) {
+    for (const opponent of opponents) {
+      resolveWallCollision(opponent.car.physics, activeTrack, activeTrack.sampleAt(opponent.car.physics.position));
+    }
+  }
 
-  for (const car of allCars) {
+  // remote players are kinematic puppets driven by network data, not simulated locally,
+  // but the local player still physically collides with wherever we last placed them
+  const collidableCars = onlineMode ? [player, ...[...remotePlayers.values()].map((r) => r.car)] : allCars;
+  for (let i = 0; i < collidableCars.length; i++) {
+    for (let j = i + 1; j < collidableCars.length; j++) {
+      resolveCarCollision(collidableCars[i].physics, collidableCars[j].physics);
+    }
+  }
+
+  for (const car of collidableCars) car.syncMesh();
+
+  if (onlineMode) {
+    for (const [id, entry] of remotePlayers) {
+      const target = remoteTargets.get(id);
+      if (!target) continue;
+      const t = smoothingFactor(12, dt);
+      const p = entry.car.physics.position;
+      p.x += (target.position.x - p.x) * t;
+      p.z += (target.position.z - p.z) * t;
+      entry.car.physics.heading += normalizeAngle(target.heading - entry.car.physics.heading) * t;
+      entry.car.physics.forwardSpeed = target.speed;
+      entry.car.syncMesh();
+    }
+  }
+
+  // powerup pads and skid marks only apply to physics we actually simulate locally;
+  // remote players' own clients handle their own pad pickups and skid trails
+  const locallySimulatedCars = onlineMode ? [player] : allCars;
+
+  for (const car of locallySimulatedCars) {
     car.powerupCooldownRemaining = Math.max(0, car.powerupCooldownRemaining - dt);
     if (car.powerupCooldownRemaining <= 0) {
       const query = activeTrack.sampleAt(car.physics.position);
@@ -270,7 +443,7 @@ function fixedStep(dt: number) {
     }
   }
 
-  for (const car of allCars) {
+  for (const car of locallySimulatedCars) {
     car.skidMarkCooldownRemaining = Math.max(0, car.skidMarkCooldownRemaining - dt);
     const drifting =
       Math.abs(car.physics.lateralVelocity) > CONFIG.skid.lateralSpeedThreshold &&
@@ -287,6 +460,28 @@ function fixedStep(dt: number) {
   game.update(dt);
   game.checkLapCrossing(player.physics.position);
   raceClock += dt;
+
+  if (game.state === "finished" && !hasAwardedCoinsThisRace) {
+    hasAwardedCoinsThisRace = true;
+    const totalRacers = onlineMode ? remotePlayers.size + 1 : opponents.length + 1;
+    const place = raceManager.getPosition("player") ?? totalRacers;
+    const reward = COIN_REWARDS[place - 1] ?? 0;
+    GarageState.addCoins(reward);
+    finishScreen.setReward(reward);
+  }
+
+  if (onlineMode && netClient.isConnected) {
+    stateSendAccumulator += dt;
+    if (stateSendAccumulator >= STATE_SEND_INTERVAL) {
+      stateSendAccumulator = 0;
+      netClient.sendState(
+        { x: player.physics.position.x, z: player.physics.position.z },
+        player.physics.heading,
+        player.physics.forwardSpeed,
+        game.lap,
+      );
+    }
+  }
 }
 
 function frame(now: number) {
@@ -316,21 +511,23 @@ function frame(now: number) {
     sun.target.position.copy(player.mesh.position);
     chaseCamera.update(frameDt, player.physics.position, player.physics.heading);
 
+    const totalRacers = onlineMode ? remotePlayers.size + 1 : opponents.length + 1;
     const playerPosition = raceManager.getPosition("player") ?? 1;
-    hud.update(game, player.physics.speed, playerPosition, opponents.length + 1);
+    hud.update(game, player.physics.speed, playerPosition, totalRacers);
     hud.updatePowerups(player.physics);
     countdownOverlay.update(game);
     finishScreen.update(game);
+
+    const otherEntries = onlineMode
+      ? [...remotePlayers.values()].map((r) => ({ position: r.car.physics.position, color: new THREE.Color(r.color).getStyle() }))
+      : opponents.map((o) => ({ position: o.car.physics.position, color: new THREE.Color(o.driver.config.color).getStyle() }));
     minimap.update([
-      { position: player.physics.position, color: new THREE.Color(PLAYER_COLOR).getStyle(), isPlayer: true },
-      ...opponents.map((o) => ({
-        position: o.car.physics.position,
-        color: new THREE.Color(o.driver.config.color).getStyle(),
-      })),
+      { position: player.physics.position, color: new THREE.Color(currentPlayerColor).getStyle(), isPlayer: true },
+      ...otherEntries,
     ]);
 
     if (engineSound) {
-      const engineActive = !paused && game.state === "racing";
+      const engineActive = !paused && game.state === "racing" && !userMuted;
       if (engineActive) engineSound.update(player.physics.speed / CONFIG.car.maxSpeed, input.accelerate);
       else engineSound.setMuted(true);
     }

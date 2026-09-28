@@ -4,6 +4,18 @@
   box-sizing: border-box;
 }
 
+/*
+ * General-purpose "hidden" fallback. Several components (HUD, minimap, overlay
+ * panels) additionally have their own more-specific `.foo.hidden` rule for
+ * historical reasons (a couple of earlier bugs came from relying on those
+ * without one, e.g. buttons/sections toggled hidden with no scoping class of
+ * their own to match). Keep this one bare so anything using just "hidden" is
+ * covered too; specificity means the scoped rules still win where they exist.
+ */
+.hidden {
+  display: none;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -215,6 +227,36 @@ html, body {
   margin-bottom: 26px;
 }
 
+.menu-coins {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffd966;
+  margin-bottom: 18px;
+}
+
+.menu-secondary-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.menu-secondary {
+  pointer-events: auto;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 20px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.menu-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .menu-start {
   pointer-events: auto;
   font-size: 22px;
@@ -235,4 +277,187 @@ html, body {
   margin-top: 22px;
   font-size: 13px;
   opacity: 0.7;
+}
+
+.mute-button {
+  position: absolute;
+  bottom: 20px;
+  left: 24px;
+  z-index: 20;
+  pointer-events: auto;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  cursor: pointer;
+}
+
+.mute-button:hover {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.garage-panel {
+  max-width: 460px;
+  width: 100%;
+}
+
+.garage-coins {
+  font-size: 20px;
+  font-weight: 800;
+  color: #ffd966;
+  margin-bottom: 20px;
+}
+
+.garage-upgrades {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.upgrade-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.upgrade-name {
+  flex: 1;
+  text-align: left;
+  font-weight: 700;
+}
+
+.upgrade-level {
+  font-size: 13px;
+  opacity: 0.85;
+  min-width: 64px;
+}
+
+.upgrade-buy {
+  pointer-events: auto;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #ffd447;
+  color: #202020;
+  cursor: pointer;
+  min-width: 108px;
+}
+
+.upgrade-buy:hover:not(:disabled) {
+  background: #ffe073;
+}
+
+.upgrade-buy:disabled {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: default;
+}
+
+.garage-colors-label {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-bottom: 8px;
+}
+
+.garage-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 26px;
+}
+
+.color-swatch {
+  pointer-events: auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.color-swatch.selected {
+  border-color: #ffd966;
+  box-shadow: 0 0 0 2px rgba(255, 217, 102, 0.5);
+}
+
+.color-swatch.locked {
+  opacity: 0.55;
+}
+
+.mp-panel {
+  max-width: 460px;
+  width: 100%;
+}
+
+.mp-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  text-align: left;
+}
+
+.mp-field label {
+  width: 90px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.mp-field input {
+  pointer-events: auto;
+  flex: 1;
+  font-size: 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.mp-field input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mp-status {
+  font-size: 13px;
+  min-height: 18px;
+  margin: 12px 0;
+  opacity: 0.85;
+}
+
+.mp-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mp-roster-row {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.mp-track-section {
+  margin-bottom: 16px;
+}
+
+.mp-track-label {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-bottom: 8px;
 }

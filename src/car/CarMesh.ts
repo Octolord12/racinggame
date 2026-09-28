@@ -16,6 +16,7 @@ export function buildCarMesh(bodyColor = 0xd23c3c): THREE.Group {
 
   const bodyY = height * 0.55 * 0.5 + 0.25;
   const body = new THREE.Mesh(new THREE.BoxGeometry(width, height * 0.55, length), bodyMat);
+  body.name = "carBody";
   body.position.y = bodyY;
   body.castShadow = true;
   car.add(body);

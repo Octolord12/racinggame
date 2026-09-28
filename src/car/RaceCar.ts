@@ -26,6 +26,7 @@ export class RaceCar {
   readonly physics = new CarPhysics();
   readonly mesh: THREE.Group;
   private readonly shieldMesh: THREE.Mesh;
+  private readonly bodyMaterial: THREE.MeshStandardMaterial | null;
   /** per-car powerup pad cooldown, tracked here rather than in CarPhysics since it's pad-interaction state, not core physics */
   powerupCooldownRemaining = 0;
   /** throttles how often skid marks are dropped while drifting */
@@ -35,6 +36,13 @@ export class RaceCar {
     this.mesh = buildCarMesh(bodyColor);
     this.shieldMesh = buildShieldMesh();
     this.mesh.add(this.shieldMesh);
+    const body = this.mesh.getObjectByName("carBody") as THREE.Mesh | undefined;
+    this.bodyMaterial = (body?.material as THREE.MeshStandardMaterial) ?? null;
+  }
+
+  /** Recolors the car body in place (e.g. after a garage color purchase). */
+  setBodyColor(hex: number) {
+    this.bodyMaterial?.color.setHex(hex);
   }
 
   update(dt: number, input: CarInput) {
