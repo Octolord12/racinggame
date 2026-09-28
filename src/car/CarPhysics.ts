@@ -50,6 +50,8 @@ export class CarPhysics {
   shieldTimeRemaining = 0;
   /** seconds left of a grip pad's extra traction */
   gripBoostTimeRemaining = 0;
+  /** most recent steer input, -1..1; purely cosmetic (front wheel turn visual), no physics reads it back */
+  lastSteerInput = 0;
 
   private upgrades: CarUpgrades = NO_UPGRADES;
 
@@ -113,6 +115,7 @@ export class CarPhysics {
   }
 
   update(dt: number, input: CarInput) {
+    this.lastSteerInput = input.steer;
     const c = CONFIG.car;
     const engineAccelMult = 1 + this.upgrades.engineLevel * 0.07;
     const engineSpeedMult = 1 + this.upgrades.engineLevel * 0.05;

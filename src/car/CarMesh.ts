@@ -1,8 +1,19 @@
 import * as THREE from "three";
 import { CONFIG } from "../config";
 
+export const WHEEL_RADIUS = 0.42;
+
+export interface CarMeshResult {
+  group: THREE.Group;
+  /** steering pivot for each wheel (rotates around Y); front wheels are indices [0, frontWheelCount) */
+  wheelPivots: THREE.Group[];
+  /** the rolling part inside each pivot (rotates around local X as the car moves) */
+  wheelSpins: THREE.Mesh[];
+  frontWheelCount: number;
+}
+
 /** Builds a simple low-poly car from primitives. Local forward is +Z, up is +Y. */
-export function buildCarMesh(bodyColor = 0xd23c3c): THREE.Group {
+export function buildCarMesh(bodyColor = 0xd23c3c): CarMeshResult {
   const car = new THREE.Group();
   const { length, width, height } = CONFIG.car;
 
@@ -58,28 +69,40 @@ export function buildCarMesh(bodyColor = 0xd23c3c): THREE.Group {
     car.add(strut);
   }
 
-  const wheelRadius = 0.42;
+  // Each wheel is a steering pivot (rotates around Y, front wheels only) containing a
+  // spin mesh (rotates around local X as the car rolls) plus its hubcap.
   const wheelWidth = 0.32;
-  const wheelGeo = new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 12);
+  const wheelGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, wheelWidth, 12);
   wheelGeo.rotateZ(Math.PI / 2);
-  const hubcapGeo = new THREE.CylinderGeometry(wheelRadius * 0.55, wheelRadius * 0.55, wheelWidth * 0.7, 10);
+  const hubcapGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.55, WHEEL_RADIUS * 0.55, wheelWidth * 0.7, 10);
   hubcapGeo.rotateZ(Math.PI / 2);
+
+  // order matters: front wheels first, so frontWheelCount can just slice the start of the arrays
   const wheelOffsets: [number, number][] = [
-    [width / 2 + 0.02, length / 2 - 0.7],
-    [-(width / 2 + 0.02), length / 2 - 0.7],
-    [width / 2 + 0.02, -length / 2 + 0.7],
-    [-(width / 2 + 0.02), -length / 2 + 0.7],
+    [width / 2 + 0.02, length / 2 - 0.7], // front right
+    [-(width / 2 + 0.02), length / 2 - 0.7], // front left
+    [width / 2 + 0.02, -length / 2 + 0.7], // rear right
+    [-(width / 2 + 0.02), -length / 2 + 0.7], // rear left
   ];
+
+  const wheelPivots: THREE.Group[] = [];
+  const wheelSpins: THREE.Mesh[] = [];
   for (const [x, z] of wheelOffsets) {
-    const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-    wheel.position.set(x, wheelRadius, z);
-    wheel.castShadow = true;
-    car.add(wheel);
+    const pivot = new THREE.Group();
+    pivot.position.set(x, WHEEL_RADIUS, z);
+    car.add(pivot);
+
+    const spin = new THREE.Mesh(wheelGeo, wheelMat);
+    spin.castShadow = true;
+    pivot.add(spin);
 
     const hubOffset = Math.sign(x) * (wheelWidth * 0.5 + 0.01);
     const hubcap = new THREE.Mesh(hubcapGeo, hubcapMat);
-    hubcap.position.set(x + hubOffset, wheelRadius, z);
-    car.add(hubcap);
+    hubcap.position.x = hubOffset;
+    spin.add(hubcap);
+
+    wheelPivots.push(pivot);
+    wheelSpins.push(spin);
   }
 
   const headlightGeo = new THREE.BoxGeometry(0.2, 0.15, 0.1);
@@ -93,5 +116,5 @@ export function buildCarMesh(bodyColor = 0xd23c3c): THREE.Group {
     car.add(taillight);
   }
 
-  return car;
+  return { group: car, wheelPivots, wheelSpins, frontWheelCount: 2 };
 }

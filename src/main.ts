@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import "./style.css";
 import { Track } from "./track/TrackBuilder";
 import { TRACKS } from "./track/tracks";
@@ -42,6 +46,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -121,6 +127,15 @@ const chaseCamera = new ChaseCamera(window.innerWidth / window.innerHeight);
   const preview = activeTrack.getStartTransform();
   chaseCamera.snapTo(preview.position, preview.heading);
 }
+
+// Bloom makes emissive bits (headlights, taillights, powerup pads, the shield bubble)
+// actually glow instead of just being a flat bright color. Threshold is high enough
+// that the sunlit scene itself doesn't bloom, only genuinely emissive materials.
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, chaseCamera.camera));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.4, 0.86);
+composer.addPass(bloomPass);
+composer.addPass(new OutputPass());
 
 const hud = new HUD(container);
 const countdownOverlay = new CountdownOverlay(container);
@@ -369,6 +384,7 @@ window.addEventListener("keydown", (e) => {
 
 window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
   chaseCamera.setAspect(window.innerWidth / window.innerHeight);
 });
 
@@ -409,7 +425,7 @@ function fixedStep(dt: number) {
     }
   }
 
-  for (const car of collidableCars) car.syncMesh();
+  for (const car of collidableCars) car.syncMesh(dt);
 
   if (onlineMode) {
     for (const [id, entry] of remotePlayers) {
@@ -421,7 +437,7 @@ function fixedStep(dt: number) {
       p.z += (target.position.z - p.z) * t;
       entry.car.physics.heading += normalizeAngle(target.heading - entry.car.physics.heading) * t;
       entry.car.physics.forwardSpeed = target.speed;
-      entry.car.syncMesh();
+      entry.car.syncMesh(dt);
     }
   }
 
@@ -533,7 +549,7 @@ function frame(now: number) {
     }
   }
 
-  renderer.render(scene, chaseCamera.camera);
+  composer.render();
 }
 
 requestAnimationFrame(frame);
