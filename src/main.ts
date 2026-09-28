@@ -3,6 +3,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import "./style.css";
 import { Track } from "./track/TrackBuilder";
 import { TRACKS } from "./track/tracks";
@@ -57,6 +58,17 @@ scene.background = new THREE.Color(HORIZON_COLOR);
 scene.fog = new THREE.Fog(HORIZON_COLOR, 130, 420);
 scene.add(buildSky(ZENITH_COLOR, HORIZON_COLOR));
 
+// Gives the cars' own reflective materials (paint, chrome hubcaps, glass) something
+// plausible to reflect — without this, metalness/roughness alone still reads as flat
+// and plasticky. RoomEnvironment is a small procedurally-lit room three.js ships for
+// exactly this, no HDRI file needed. Deliberately passed only to car materials (see
+// CarMesh.ts) rather than set as scene.environment, which would also relight the
+// track's grass/asphalt/walls — those were never meant to reflect anything and washed
+// out into a bright haze when this was tried as a global setting.
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+const carEnvMap = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+pmremGenerator.dispose();
+
 const ambient = new THREE.HemisphereLight(0xdcf0fb, 0x2f7a3c, 0.75);
 scene.add(ambient);
 
@@ -91,7 +103,7 @@ scene.add(activeTrack.group);
 
 // Cars are likewise built once and just repositioned/hidden between races and tracks.
 let currentPlayerColor = GarageState.get().selectedColor;
-const player = new RaceCar(currentPlayerColor);
+const player = new RaceCar(currentPlayerColor, carEnvMap);
 player.mesh.visible = false;
 scene.add(player.mesh);
 
@@ -104,7 +116,7 @@ interface Opponent {
 }
 
 const opponents: Opponent[] = CONFIG.ai.drivers.map((driverConfig, i) => {
-  const car = new RaceCar(driverConfig.color);
+  const car = new RaceCar(driverConfig.color, carEnvMap);
   car.mesh.visible = false;
   scene.add(car.mesh);
   return { id: `ai-${i}`, car, driver: new AIDriver(driverConfig), gridDistance: 14 + i * 6 };
@@ -197,7 +209,7 @@ function applyGarageStateToPlayer() {
 
 function addRemotePlayer(peer: PeerInfo) {
   if (remotePlayers.has(peer.id)) return;
-  const car = new RaceCar(peer.color);
+  const car = new RaceCar(peer.color, carEnvMap);
   car.mesh.visible = true;
   scene.add(car.mesh);
   const grid = activeTrack.getGridTransform(14 + remotePlayers.size * 6, 0);

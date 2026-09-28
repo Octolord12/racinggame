@@ -38,8 +38,8 @@ export class RaceCar {
   /** throttles how often skid marks are dropped while drifting */
   skidMarkCooldownRemaining = 0;
 
-  constructor(bodyColor?: number) {
-    const built = buildCarMesh(bodyColor);
+  constructor(bodyColor?: number, envMap: THREE.Texture | null = null) {
+    const built = buildCarMesh(bodyColor, envMap);
     this.mesh = built.group;
     this.wheelPivots = built.wheelPivots;
     this.wheelSpins = built.wheelSpins;

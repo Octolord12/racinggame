@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CONFIG } from "../config";
+import { createCarPaintTexture, createTireTexture } from "../utils/textures";
 
 export const WHEEL_RADIUS = 0.42;
 
@@ -12,15 +13,47 @@ export interface CarMeshResult {
   frontWheelCount: number;
 }
 
-/** Builds a simple low-poly car from primitives. Local forward is +Z, up is +Y. */
-export function buildCarMesh(bodyColor = 0xd23c3c): CarMeshResult {
+// Shared across every car instance — generated once, not per-car.
+const carPaintTexture = createCarPaintTexture();
+const tireTexture = createTireTexture();
+
+/**
+ * Builds a simple low-poly car from primitives. Local forward is +Z, up is +Y.
+ * envMap is applied only to the car's own reflective materials (paint, chrome
+ * hubcaps, glass) — deliberately not scene.environment, which would also light
+ * up the track's grass/asphalt/walls that were never meant to reflect anything.
+ */
+export function buildCarMesh(bodyColor = 0xd23c3c, envMap: THREE.Texture | null = null): CarMeshResult {
   const car = new THREE.Group();
   const { length, width, height } = CONFIG.car;
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.45, metalness: 0.15 });
-  const cabinMat = new THREE.MeshStandardMaterial({ color: 0x1c2430, roughness: 0.3, metalness: 0.2 });
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
-  const hubcapMat = new THREE.MeshStandardMaterial({ color: 0xaeb4bb, roughness: 0.35, metalness: 0.6 });
+  // paint map is a near-white sheen+fleck texture; material.color still tints it per car
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: bodyColor,
+    map: carPaintTexture,
+    roughness: 0.4,
+    metalness: 0.25,
+    envMap,
+    envMapIntensity: 0.6,
+  });
+  // tinted glass with a clearcoat sheen
+  const cabinMat = new THREE.MeshPhysicalMaterial({
+    color: 0x2a3644,
+    roughness: 0.12,
+    metalness: 0.1,
+    clearcoat: 1,
+    clearcoatRoughness: 0.1,
+    envMap,
+    envMapIntensity: 0.8,
+  });
+  const wheelMat = new THREE.MeshStandardMaterial({ map: tireTexture, roughness: 0.95 });
+  const hubcapMat = new THREE.MeshStandardMaterial({
+    color: 0xd7dade,
+    roughness: 0.2,
+    metalness: 0.9,
+    envMap,
+    envMapIntensity: 1,
+  });
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff4c2, emissive: 0xffe38a, emissiveIntensity: 0.6 });
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x660000, emissive: 0x440000, emissiveIntensity: 0.4 });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6, metalness: 0.3 });
@@ -49,10 +82,10 @@ export function buildCarMesh(bodyColor = 0xd23c3c): CarMeshResult {
   rearBumper.position.z = -length / 2 + 0.06;
   car.add(rearBumper);
 
-  // side mirrors
+  // side mirrors (matte housings, not glass — cabinMat is reserved for the glossy windows)
   const mirrorGeo = new THREE.BoxGeometry(0.12, 0.12, 0.22);
   for (const x of [width / 2 + 0.1, -(width / 2 + 0.1)]) {
-    const mirror = new THREE.Mesh(mirrorGeo, cabinMat);
+    const mirror = new THREE.Mesh(mirrorGeo, trimMat);
     mirror.position.set(x, bodyY + height * 0.18, length * 0.08);
     car.add(mirror);
   }
@@ -72,7 +105,7 @@ export function buildCarMesh(bodyColor = 0xd23c3c): CarMeshResult {
   // Each wheel is a steering pivot (rotates around Y, front wheels only) containing a
   // spin mesh (rotates around local X as the car rolls) plus its hubcap.
   const wheelWidth = 0.32;
-  const wheelGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, wheelWidth, 12);
+  const wheelGeo = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, wheelWidth, 16);
   wheelGeo.rotateZ(Math.PI / 2);
   const hubcapGeo = new THREE.CylinderGeometry(WHEEL_RADIUS * 0.55, WHEEL_RADIUS * 0.55, wheelWidth * 0.7, 10);
   hubcapGeo.rotateZ(Math.PI / 2);

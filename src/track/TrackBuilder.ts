@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CONFIG } from "../config";
-import { createAsphaltTexture, createGrassTexture } from "../utils/textures";
+import { createAsphaltTexture, createBarkTexture, createFoliageTexture, createGrassTexture } from "../utils/textures";
 
 export interface TrackSample {
   point: THREE.Vector3;
@@ -319,10 +319,10 @@ export class Track {
     const placed: { x: number; z: number }[] = [];
     const minSpacing = 9;
 
-    const trunkGeo = new THREE.CylinderGeometry(0.35, 0.45, 2.2, 6);
-    const foliageGeo = new THREE.ConeGeometry(2.4, 4.5, 7);
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
-    const foliageMat = new THREE.MeshStandardMaterial({ color: 0x1f6b34, roughness: 1 });
+    const trunkGeo = new THREE.CylinderGeometry(0.35, 0.45, 2.2, 8);
+    const foliageGeo = new THREE.ConeGeometry(2.4, 4.5, 9);
+    const trunkMat = new THREE.MeshStandardMaterial({ map: createBarkTexture(), color: 0x8a6a48, roughness: 1 });
+    const foliageMat = new THREE.MeshStandardMaterial({ map: createFoliageTexture(), color: 0x5a9a55, roughness: 1 });
 
     const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, maxTrees);
     const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, maxTrees);
@@ -347,9 +347,13 @@ export class Track {
 
       const scale = 0.75 + Math.random() * 0.55;
       const rotationY = Math.random() * Math.PI * 2;
+      const tiltX = (Math.random() - 0.5) * 0.08;
+      const tiltZ = (Math.random() - 0.5) * 0.08;
+      const canopyWidth = scale * (0.85 + Math.random() * 0.3);
+      const canopyHeight = scale * (0.9 + Math.random() * 0.25);
 
       dummy.position.set(x, 1.1 * scale, z);
-      dummy.rotation.y = rotationY;
+      dummy.rotation.set(tiltX, rotationY, tiltZ);
       dummy.scale.setScalar(scale);
       dummy.updateMatrix();
       trunks.setMatrixAt(count, dummy.matrix);
@@ -357,6 +361,7 @@ export class Track {
       trunks.setColorAt(count, trunkColor);
 
       dummy.position.set(x, 3.4 * scale, z);
+      dummy.scale.set(canopyWidth, canopyHeight, canopyWidth);
       dummy.updateMatrix();
       foliage.setMatrixAt(count, dummy.matrix);
       foliageColor.setHSL(0.32 + Math.random() * 0.07, 0.45 + Math.random() * 0.15, 0.24 + Math.random() * 0.1);
